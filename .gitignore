@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+
+# Spring Boot
+*.jar
+*.war
+*.ear
+
+# IDE
+.idea/
+*.iml
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secretos — NUNCA subir al repo
+.env
+
+# Logs
+*.log
+logs/

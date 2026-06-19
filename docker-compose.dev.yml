@@ -1,0 +1,29 @@
+
+# Entorno de desarrollo local — solo levanta PostgreSQL
+# Uso: docker compose -f docker-compose.dev.yml up -d
+#
+# El backend se arranca directamente desde el IDE con el perfil 'dev':
+#   SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ironkey-postgres-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB:       ironkey_db
+      POSTGRES_USER:     ironkey_user
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ironkey_user -d ironkey_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
