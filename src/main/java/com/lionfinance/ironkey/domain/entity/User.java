@@ -77,6 +77,15 @@ public class User {
     @Column(name = "recovery_protected_key_iv", length = 255)
     private String recoveryProtectedKeyIv;
 
+    // Preferencias del usuario
+    @Column(name = "require_reprompt", nullable = false)
+    @Builder.Default
+    private Boolean requireReprompt = false;
+
+    @Column(name = "vault_timeout_minutes", nullable = false)
+    @Builder.Default
+    private Integer vaultTimeoutMinutes = 15;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

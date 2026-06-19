@@ -9,5 +9,10 @@ public record AuthResponse(
         // El cliente necesita estos dos campos para descifrar su vault key localmente
         String protectedSymmetricKey,
 
-        String protectedSymmetricKeyIv
+        String protectedSymmetricKeyIv,
+
+        // Preferencias del usuario — la extensión y el front las leen al hacer login
+        boolean requireReprompt,
+
+        int vaultTimeoutMinutes
 ) {}

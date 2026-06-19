@@ -332,7 +332,9 @@ public class AuthService {
                 accessToken,
                 rawRefreshToken,
                 user.getProtectedSymmetricKey(),
-                user.getProtectedSymmetricKeyIv()
+                user.getProtectedSymmetricKeyIv(),
+                user.getRequireReprompt(),
+                user.getVaultTimeoutMinutes()
         );
     }
 

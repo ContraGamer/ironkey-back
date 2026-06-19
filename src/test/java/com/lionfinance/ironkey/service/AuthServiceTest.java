@@ -88,6 +88,9 @@ class AuthServiceTest {
         when(jwtService.generateRawRefreshToken()).thenReturn("rawRefresh");
         when(jwtProperties.refreshTokenExpiration()).thenReturn(604_800_000L);
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        testUser.setRequireReprompt(false);
+        testUser.setVaultTimeoutMinutes(15);
     }
 
     // -------------------------------------------------------------------------
