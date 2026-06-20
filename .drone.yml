@@ -6,7 +6,7 @@ steps:
 
   # ---------------------------------------------------------------------------
   # 1. Build y tests
-  #    Corre en develop y main. Usa la misma imagen que el Dockerfile de runtime.
+  #    Corre en develop y main.
   # ---------------------------------------------------------------------------
   - name: build-and-test
     image: eclipse-temurin:21-jdk-alpine
@@ -20,13 +20,21 @@ steps:
 
   # ---------------------------------------------------------------------------
   # 2. Build y push de imagen Docker al registry privado
-  #    Solo se ejecuta cuando el push llega a main
+  #    Solo se ejecuta cuando el push llega a main.
+  #
+  #    Secrets requeridos en Drone:
+  #      REGISTRY_URL      → URL del registry privado (ej: registry.tudominio.com)
+  #      IMAGE_REPO        → Ruta completa de la imagen (ej: registry.tudominio.com/ironkey-back)
+  #      REGISTRY_USERNAME → Usuario del registry
+  #      REGISTRY_PASSWORD → Contraseña del registry
   # ---------------------------------------------------------------------------
   - name: docker-build-and-push
     image: plugins/docker
     settings:
-      registry: registry.contragamer.com
-      repo: registry.contragamer.com/ironkey-back
+      registry:
+        from_secret: REGISTRY_URL
+      repo:
+        from_secret: IMAGE_REPO
       tags:
         - latest
         - ${DRONE_BUILD_NUMBER}
@@ -44,10 +52,19 @@ steps:
 
   # ---------------------------------------------------------------------------
   # 3. Deploy en VPS vía SSH
-  #    Solo se ejecuta cuando el push llega a main
+  #    Solo se ejecuta cuando el push llega a main.
+  #
+  #    Secrets requeridos en Drone:
+  #      DEPLOY_HOST    → IP o dominio del servidor
+  #      DEPLOY_USER    → Usuario SSH
+  #      DEPLOY_SSH_KEY → Clave privada SSH
+  #      DEPLOY_PATH    → Ruta del proyecto en el servidor (ej: /apps/ironkey)
   # ---------------------------------------------------------------------------
   - name: deploy
     image: appleboy/drone-ssh
+    environment:
+      DEPLOY_PATH:
+        from_secret: DEPLOY_PATH
     settings:
       host:
         from_secret: DEPLOY_HOST
@@ -55,8 +72,10 @@ steps:
         from_secret: DEPLOY_USER
       key:
         from_secret: DEPLOY_SSH_KEY
+      envs:
+        - DEPLOY_PATH
       script:
-        - cd /root/apps/ironkey
+        - cd $DEPLOY_PATH
         - docker compose pull
         - docker compose down --remove-orphans
         - docker compose up -d
@@ -67,7 +86,7 @@ steps:
         - push
 
 # -----------------------------------------------------------------------------
-# Cache del wrapper de Gradle montado desde el host del runner
+# Cache de Gradle montado desde el host del runner de CI
 # -----------------------------------------------------------------------------
 volumes:
   - name: gradle_cache
