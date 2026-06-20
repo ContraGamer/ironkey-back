@@ -14,6 +14,7 @@ import com.lionfinance.ironkey.exception.InvalidCredentialsException;
 import com.lionfinance.ironkey.exception.InvalidTokenException;
 import com.lionfinance.ironkey.exception.TotpRequiredException;
 import com.lionfinance.ironkey.exception.InvalidTotpException;
+import com.lionfinance.ironkey.security.EncryptionService;
 import com.lionfinance.ironkey.security.jwt.JwtProperties;
 import com.lionfinance.ironkey.security.jwt.JwtService;
 import dev.samstevens.totp.code.CodeVerifier;
@@ -47,6 +48,7 @@ class AuthServiceTest {
     @Mock JwtService jwtService;
     @Mock JwtProperties jwtProperties;
     @Mock PasswordEncoder passwordEncoder;
+    @Mock EncryptionService encryptionService;
     @Mock SecretGenerator totpSecretGenerator;
     @Mock QrGenerator qrGenerator;
     @Mock CodeVerifier codeVerifier;
@@ -183,7 +185,7 @@ class AuthServiceTest {
     @Test
     void login_totpEnabled_missingCode_throwsTotpRequiredException() {
         testUser.setTotpEnabled(true);
-        testUser.setTotpSecret("TOTP_SECRET");
+        testUser.setTotpSecret("ENCRYPTED_SECRET");
         when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches("clientHash", "$2a$10$hashedpwd")).thenReturn(true);
 
@@ -194,10 +196,11 @@ class AuthServiceTest {
     @Test
     void login_totpEnabled_invalidCode_throwsInvalidTotpException() {
         testUser.setTotpEnabled(true);
-        testUser.setTotpSecret("TOTP_SECRET");
+        testUser.setTotpSecret("ENCRYPTED_SECRET");
         when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches("clientHash", "$2a$10$hashedpwd")).thenReturn(true);
-        when(codeVerifier.isValidCode("TOTP_SECRET", "000000")).thenReturn(false);
+        when(encryptionService.decrypt("ENCRYPTED_SECRET")).thenReturn("RAW_SECRET");
+        when(codeVerifier.isValidCode("RAW_SECRET", "000000")).thenReturn(false);
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("user@ironkey.dev", "clientHash", "000000"), IP, UA))
                 .isInstanceOf(InvalidTotpException.class);
@@ -206,10 +209,11 @@ class AuthServiceTest {
     @Test
     void login_totpEnabled_validCode_returnsTokens() {
         testUser.setTotpEnabled(true);
-        testUser.setTotpSecret("TOTP_SECRET");
+        testUser.setTotpSecret("ENCRYPTED_SECRET");
         when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches("clientHash", "$2a$10$hashedpwd")).thenReturn(true);
-        when(codeVerifier.isValidCode("TOTP_SECRET", "123456")).thenReturn(true);
+        when(encryptionService.decrypt("ENCRYPTED_SECRET")).thenReturn("RAW_SECRET");
+        when(codeVerifier.isValidCode("RAW_SECRET", "123456")).thenReturn(true);
 
         var result = authService.login(new LoginRequest("user@ironkey.dev", "clientHash", "123456"), IP, UA);
 

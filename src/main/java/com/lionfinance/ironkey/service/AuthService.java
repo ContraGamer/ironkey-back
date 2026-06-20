@@ -8,6 +8,7 @@ import com.lionfinance.ironkey.domain.repository.RefreshTokenRepository;
 import com.lionfinance.ironkey.domain.repository.RoleRepository;
 import com.lionfinance.ironkey.domain.repository.UserRepository;
 import com.lionfinance.ironkey.exception.*;
+import com.lionfinance.ironkey.security.EncryptionService;
 import com.lionfinance.ironkey.security.jwt.JwtProperties;
 import com.lionfinance.ironkey.security.jwt.JwtService;
 import dev.samstevens.totp.code.CodeVerifier;
@@ -41,6 +42,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final JwtProperties jwtProperties;
     private final PasswordEncoder passwordEncoder;
+    private final EncryptionService encryptionService;
     private final SecretGenerator totpSecretGenerator;
     private final QrGenerator qrGenerator;
     private final CodeVerifier codeVerifier;
@@ -111,9 +113,7 @@ public class AuthService {
             if (request.totpCode() == null || request.totpCode().isBlank()) {
                 throw new TotpRequiredException();
             }
-            if (!codeVerifier.isValidCode(user.getTotpSecret(), request.totpCode())) {
-                throw new InvalidTotpException();
-            }
+            verifyTotp(user, request.totpCode());
         }
 
         return issueTokens(user, ip, userAgent);
@@ -188,15 +188,15 @@ public class AuthService {
         var user = userRepository.findById(userId)
                 .orElseThrow(InvalidCredentialsException::new);
 
-        String secret = totpSecretGenerator.generate();
+        String rawSecret = totpSecretGenerator.generate();
 
-        // Almacena el secret temporalmente — TOTP queda desactivado hasta que el usuario verifique
-        user.setTotpSecret(secret);
+        // Cifra el secret antes de persistir — nunca texto plano en DB
+        user.setTotpSecret(encryptionService.encrypt(rawSecret));
         userRepository.save(user);
 
         QrData qrData = new QrData.Builder()
                 .label(user.getEmail())
-                .secret(secret)
+                .secret(rawSecret)
                 .issuer("IronKey")
                 .digits(6)
                 .period(30)
@@ -205,8 +205,7 @@ public class AuthService {
         try {
             byte[] qrImageBytes = qrGenerator.generate(qrData);
             String qrBase64 = Base64.getEncoder().encodeToString(qrImageBytes);
-
-            return new TotpSetupResponse(secret, qrData.getUri(), qrBase64);
+            return new TotpSetupResponse(rawSecret, qrData.getUri(), qrBase64);
         } catch (QrGenerationException e) {
             throw new IronKeyException("Error al generar el código QR");
         }
@@ -220,10 +219,7 @@ public class AuthService {
             throw new IronKeyException("Primero configura el 2FA con /2fa/setup");
         }
 
-        if (!codeVerifier.isValidCode(user.getTotpSecret(), totpCode)) {
-            throw new InvalidTotpException();
-        }
-
+        verifyTotp(user, totpCode);
         user.setTotpEnabled(true);
         userRepository.save(user);
     }
@@ -236,10 +232,7 @@ public class AuthService {
             throw new IronKeyException("El 2FA no está activado");
         }
 
-        if (!codeVerifier.isValidCode(user.getTotpSecret(), totpCode)) {
-            throw new InvalidTotpException();
-        }
-
+        verifyTotp(user, totpCode);
         user.setTotpEnabled(false);
         user.setTotpSecret(null);
         userRepository.save(user);
@@ -259,10 +252,7 @@ public class AuthService {
             throw new IronKeyException("Se requiere 2FA activo para configurar la recuperación");
         }
 
-        if (!codeVerifier.isValidCode(user.getTotpSecret(), request.totpCode())) {
-            throw new InvalidTotpException();
-        }
-
+        verifyTotp(user, request.totpCode());
         user.setRecoveryEnabled(true);
         user.setRecoveryProtectedKey(request.recoveryProtectedKey());
         user.setRecoveryProtectedKeyIv(request.recoveryProtectedKeyIv());
@@ -275,11 +265,7 @@ public class AuthService {
         var user = userRepository.findById(userId)
                 .orElseThrow(InvalidCredentialsException::new);
 
-        if (!codeVerifier.isValidCode(user.getTotpSecret(), totpCode)) {
-            throw new InvalidTotpException();
-        }
-
-        // Los datos de recovery quedan dormidos en DB — no se borran
+        verifyTotp(user, totpCode);
         user.setRecoveryEnabled(false);
         userRepository.save(user);
     }
@@ -294,16 +280,11 @@ public class AuthService {
             throw new IronKeyException("Este usuario no tiene recuperación configurada");
         }
 
-        if (!codeVerifier.isValidCode(user.getTotpSecret(), request.totpCode())) {
-            throw new InvalidTotpException();
-        }
-
-        // Actualiza el master_password_hash y la vault key envuelta con el nuevo master_derived_key
+        verifyTotp(user, request.totpCode());
         user.setMasterPasswordHash(passwordEncoder.encode(request.newMasterPasswordHash()));
         user.setProtectedSymmetricKey(request.newProtectedSymmetricKey());
         user.setProtectedSymmetricKeyIv(request.newProtectedSymmetricKeyIv());
 
-        // Revoca todas las sesiones activas — el usuario debe volver a autenticarse
         refreshTokenRepository.revokeAllByUserId(user.getId(), OffsetDateTime.now());
         userRepository.save(user);
 
@@ -314,8 +295,16 @@ public class AuthService {
     // Helpers privados
     // -------------------------------------------------------------------------
 
+    // Descifra el secret almacenado y verifica el código TOTP
+    private void verifyTotp(User user, String totpCode) {
+        String rawSecret = encryptionService.decrypt(user.getTotpSecret());
+        if (!codeVerifier.isValidCode(rawSecret, totpCode)) {
+            throw new InvalidTotpException();
+        }
+    }
+
     private AuthResponse issueTokens(User user, String ip, String userAgent) {
-        String accessToken = jwtService.generateAccessToken(user);
+        String accessToken    = jwtService.generateAccessToken(user);
         String rawRefreshToken = jwtService.generateRawRefreshToken();
 
         var refreshToken = RefreshToken.builder()
