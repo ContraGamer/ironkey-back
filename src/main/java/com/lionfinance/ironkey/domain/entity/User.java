@@ -86,6 +86,14 @@ public class User {
     @Builder.Default
     private Integer vaultTimeoutMinutes = 15;
 
+    // Account lockout
+    @Column(name = "failed_login_attempts", nullable = false)
+    @Builder.Default
+    private Integer failedLoginAttempts = 0;
+
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

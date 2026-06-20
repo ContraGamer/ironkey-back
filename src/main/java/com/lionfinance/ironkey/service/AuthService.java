@@ -9,6 +9,7 @@ import com.lionfinance.ironkey.domain.repository.RoleRepository;
 import com.lionfinance.ironkey.domain.repository.UserRepository;
 import com.lionfinance.ironkey.exception.*;
 import com.lionfinance.ironkey.security.EncryptionService;
+import com.lionfinance.ironkey.security.LockoutProperties;
 import com.lionfinance.ironkey.security.jwt.JwtProperties;
 import com.lionfinance.ironkey.security.jwt.JwtService;
 import dev.samstevens.totp.code.CodeVerifier;
@@ -41,6 +42,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final JwtProperties jwtProperties;
+    private final LockoutProperties lockoutProperties;
     private final PasswordEncoder passwordEncoder;
     private final EncryptionService encryptionService;
     private final SecretGenerator totpSecretGenerator;
@@ -105,7 +107,13 @@ public class AuthService {
         var user = userRepository.findByEmailWithRoles(request.email())
                 .orElseThrow(InvalidCredentialsException::new);
 
+        // Verificar si la cuenta está bloqueada
+        if (user.getLockedUntil() != null && OffsetDateTime.now().isBefore(user.getLockedUntil())) {
+            throw new AccountLockedException(user.getLockedUntil());
+        }
+
         if (!passwordEncoder.matches(request.masterPasswordHash(), user.getMasterPasswordHash())) {
+            registerFailedAttempt(user);
             throw new InvalidCredentialsException();
         }
 
@@ -115,6 +123,11 @@ public class AuthService {
             }
             verifyTotp(user, request.totpCode());
         }
+
+        // Login exitoso — resetear contador
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
 
         return issueTokens(user, ip, userAgent);
     }
@@ -294,6 +307,20 @@ public class AuthService {
     // -------------------------------------------------------------------------
     // Helpers privados
     // -------------------------------------------------------------------------
+
+    // Incrementa el contador de fallos y bloquea la cuenta si supera el límite
+    private void registerFailedAttempt(User user) {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+
+        if (attempts >= lockoutProperties.maxFailedLoginAttempts()) {
+            user.setLockedUntil(
+                OffsetDateTime.now().plusMinutes(lockoutProperties.lockoutDurationMinutes())
+            );
+        }
+
+        userRepository.save(user);
+    }
 
     // Descifra el secret almacenado y verifica el código TOTP
     private void verifyTotp(User user, String totpCode) {
