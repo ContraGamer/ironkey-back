@@ -53,6 +53,7 @@ steps:
     when:
       branch:
         - main
+        - develop
       event:
         - push
 
@@ -88,6 +89,7 @@ steps:
     when:
       branch:
         - main
+        - develop
       event:
         - push
 
