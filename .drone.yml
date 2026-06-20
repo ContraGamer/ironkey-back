@@ -38,10 +38,8 @@ steps:
   - name: docker-build-and-push
     image: plugins/docker
     settings:
-      registry:
-        from_secret: REGISTRY_URL
-      repo:
-        from_secret: IMAGE_REPO
+      registry: registry.contragamer.com
+      repo: registry.contragamer.com/ironkey-back
       tags:
         - latest
         - ${DRONE_BUILD_NUMBER}
