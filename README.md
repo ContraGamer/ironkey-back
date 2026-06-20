@@ -1,4 +1,4 @@
-# IronKey — Backend
+# IronKey — Backend 🔑
 
 Backend del gestor de contraseñas self-hosted IronKey. API REST construida con Java 21 y Spring Boot 4, diseñada con un modelo **zero-knowledge puro**: el servidor nunca puede descifrar las contraseñas almacenadas por los usuarios.
 
