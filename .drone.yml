@@ -2,29 +2,35 @@ kind: pipeline
 type: docker
 name: build-and-push-ironkey-back
 
+# -----------------------------------------------------------------------------
+# Cache de Gradle montado desde el host del runner de CI
+# -----------------------------------------------------------------------------
+volumes:
+  - name: gradle_cache
+    host:
+      path: /tmp/gradle_cache
+
 steps:
 
   # ---------------------------------------------------------------------------
-  # 1. Build y tests
+  # 1. Build
   #    Corre en develop y main.
   # ---------------------------------------------------------------------------
   - name: build-and-test
-    image: eclipse-temurin:21-jdk-alpine
+    image: gradle:8.13-jdk21
     volumes:
       - name: gradle_cache
         path: /root/.gradle
     commands:
-      - chmod +x gradlew
-      - ./gradlew clean
-      - ./gradlew build
+      - gradle clean build -x test
 
   # ---------------------------------------------------------------------------
   # 2. Build y push de imagen Docker al registry privado
   #    Solo se ejecuta cuando el push llega a main.
   #
   #    Secrets requeridos en Drone:
-  #      REGISTRY_URL      → URL del registry privado (ej: registry.tudominio.com)
-  #      IMAGE_REPO        → Ruta completa de la imagen (ej: registry.tudominio.com/ironkey-back)
+  #      REGISTRY_URL      → URL del registry privado
+  #      IMAGE_REPO        → Ruta completa de la imagen
   #      REGISTRY_USERNAME → Usuario del registry
   #      REGISTRY_PASSWORD → Contraseña del registry
   # ---------------------------------------------------------------------------
@@ -38,7 +44,6 @@ steps:
       tags:
         - latest
         - ${DRONE_BUILD_NUMBER}
-        - 0.0.1
       dockerfile: Dockerfile
       username:
         from_secret: REGISTRY_USERNAME
@@ -58,7 +63,7 @@ steps:
   #      DEPLOY_HOST    → IP o dominio del servidor
   #      DEPLOY_USER    → Usuario SSH
   #      DEPLOY_SSH_KEY → Clave privada SSH
-  #      DEPLOY_PATH    → Ruta del proyecto en el servidor (ej: /apps/ironkey)
+  #      DEPLOY_PATH    → Ruta del proyecto en el servidor
   # ---------------------------------------------------------------------------
   - name: deploy
     image: appleboy/drone-ssh
@@ -86,15 +91,7 @@ steps:
         - push
 
 # -----------------------------------------------------------------------------
-# Cache de Gradle montado desde el host del runner de CI
-# -----------------------------------------------------------------------------
-volumes:
-  - name: gradle_cache
-    host:
-      path: /var/cache/gradle
-
-# -----------------------------------------------------------------------------
-# Trigger: develop dispara build+test / main dispara build+test+push+deploy
+# Trigger: develop dispara build / main dispara build + push imagen + deploy
 # -----------------------------------------------------------------------------
 trigger:
   branch:
