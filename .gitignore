@@ -7,6 +7,9 @@ build/
 *.war
 *.ear
 
+# El wrapper de Gradle sí debe estar en el repo
+!gradle/wrapper/gradle-wrapper.jar
+
 # IDE
 .idea/
 *.iml
