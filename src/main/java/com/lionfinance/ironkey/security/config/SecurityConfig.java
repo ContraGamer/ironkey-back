@@ -1,6 +1,7 @@
 package com.lionfinance.ironkey.security.config;
 
 import com.lionfinance.ironkey.security.filter.JwtAuthenticationFilter;
+import com.lionfinance.ironkey.security.filter.RateLimitFilter;
 import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetailsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RateLimitFilter rateLimitFilter;
     private final IronKeyUserDetailsService userDetailsService;
 
     @Value("${ironkey.cors.allowed-origins}")
@@ -61,7 +63,8 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtAuthenticationFilter, RateLimitFilter.class)
                 .build();
     }
 
