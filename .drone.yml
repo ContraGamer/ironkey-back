@@ -67,9 +67,6 @@ steps:
   # ---------------------------------------------------------------------------
   - name: deploy
     image: appleboy/drone-ssh
-    environment:
-      DEPLOY_PATH:
-        from_secret: DEPLOY_PATH
     settings:
       host:
         from_secret: DEPLOY_HOST
@@ -77,10 +74,8 @@ steps:
         from_secret: DEPLOY_USER
       key:
         from_secret: DEPLOY_SSH_KEY
-      envs:
-        - DEPLOY_PATH
       script:
-        - cd $DEPLOY_PATH
+        - cd /root/apps/ironkey
         - docker compose pull
         - docker compose down --remove-orphans
         - docker compose up -d
