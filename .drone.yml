@@ -17,12 +17,13 @@ steps:
   #    Corre en develop y main.
   # ---------------------------------------------------------------------------
   - name: build-and-test
-    image: gradle:8.13-jdk21
+    image: eclipse-temurin:21-jdk-alpine
     volumes:
       - name: gradle_cache
         path: /root/.gradle
     commands:
-      - gradle clean build -x test
+      - chmod +x gradlew
+      - ./gradlew clean build -x test
 
   # ---------------------------------------------------------------------------
   # 2. Build y push de imagen Docker al registry privado
