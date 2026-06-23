@@ -2,17 +2,17 @@ package com.lionfinance.ironkey.api.dto.auth.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public record RecoverAccountRequest(
 
         @NotBlank @Email
         String email,
 
-        // Código TOTP actual para verificar identidad
+        // Recovery code en texto plano — el servidor verifica su hash contra el almacenado
         @NotBlank
-        @Pattern(regexp = "^\\d{6}$", message = "El código TOTP debe tener 6 dígitos")
-        String totpCode,
+        @Size(min = 20, message = "El código de recuperación debe tener al menos 20 caracteres")
+        String recoveryCode,
 
         // Nuevo hash del master password (el cliente re-derivó con nuevo password)
         @NotBlank

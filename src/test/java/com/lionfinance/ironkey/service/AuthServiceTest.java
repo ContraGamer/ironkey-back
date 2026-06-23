@@ -1,6 +1,8 @@
 package com.lionfinance.ironkey.service;
 
 import com.lionfinance.ironkey.api.dto.auth.request.LoginRequest;
+import com.lionfinance.ironkey.api.dto.auth.request.RecoverAccountRequest;
+import com.lionfinance.ironkey.api.dto.auth.request.RecoverySetupRequest;
 import com.lionfinance.ironkey.api.dto.auth.request.RegisterRequest;
 import com.lionfinance.ironkey.api.dto.auth.request.RefreshRequest;
 import com.lionfinance.ironkey.domain.entity.RefreshToken;
@@ -11,10 +13,13 @@ import com.lionfinance.ironkey.domain.repository.RoleRepository;
 import com.lionfinance.ironkey.domain.repository.UserRepository;
 import com.lionfinance.ironkey.exception.EmailAlreadyExistsException;
 import com.lionfinance.ironkey.exception.InvalidCredentialsException;
+import com.lionfinance.ironkey.exception.InvalidRecoveryCodeException;
 import com.lionfinance.ironkey.exception.InvalidTokenException;
 import com.lionfinance.ironkey.exception.TotpRequiredException;
 import com.lionfinance.ironkey.exception.InvalidTotpException;
+import com.lionfinance.ironkey.exception.RecoveryNotConfiguredException;
 import com.lionfinance.ironkey.security.EncryptionService;
+import com.lionfinance.ironkey.security.LockoutProperties;
 import com.lionfinance.ironkey.security.jwt.JwtProperties;
 import com.lionfinance.ironkey.security.jwt.JwtService;
 import dev.samstevens.totp.code.CodeVerifier;
@@ -29,7 +34,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -291,8 +300,152 @@ class AuthServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // setupRecovery
+    // -------------------------------------------------------------------------
+
+    @Test
+    void setupRecovery_validTotpAndCode_storesCodeHash() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setTotpEnabled(true);
+        testUser.setTotpSecret("ENCRYPTED_SECRET");
+
+        var request = new RecoverySetupRequest(
+                "123456", "encRecoveryKey", "recoveryKeyIv", RECOVERY_CODE
+        );
+
+        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(encryptionService.decrypt("ENCRYPTED_SECRET")).thenReturn("RAW_SECRET");
+        when(codeVerifier.isValidCode("RAW_SECRET", "123456")).thenReturn(true);
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.setupRecovery(testUser.getId(), request);
+
+        verify(userRepository).save(argThat(u ->
+                u.getRecoveryEnabled() &&
+                u.getRecoveryCodeHash().equals(sha256Base64Url(RECOVERY_CODE)) &&
+                "encRecoveryKey".equals(u.getRecoveryProtectedKey())
+        ));
+    }
+
+    // -------------------------------------------------------------------------
+    // getRecoveryData
+    // -------------------------------------------------------------------------
+
+    @Test
+    void getRecoveryData_userWithRecovery_returnsData() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setRecoveryEnabled(true);
+        testUser.setRecoveryCodeHash(sha256Base64Url(RECOVERY_CODE));
+        testUser.setRecoveryProtectedKey("encRecoveryKey");
+        testUser.setRecoveryProtectedKeyIv("recoveryKeyIv");
+
+        when(userRepository.findByEmail("user@ironkey.dev")).thenReturn(Optional.of(testUser));
+
+        var result = authService.getRecoveryData("user@ironkey.dev");
+
+        assertThat(result.recoveryProtectedKey()).isEqualTo("encRecoveryKey");
+        assertThat(result.recoveryProtectedKeyIv()).isEqualTo("recoveryKeyIv");
+        assertThat(result.kdfType()).isEqualTo("argon2id");
+        assertThat(result.kdfSalt()).isEqualTo("salt123");
+    }
+
+    @Test
+    void getRecoveryData_recoveryNotConfigured_throwsRecoveryNotConfiguredException() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setRecoveryEnabled(false);
+
+        when(userRepository.findByEmail("user@ironkey.dev")).thenReturn(Optional.of(testUser));
+
+        assertThatThrownBy(() -> authService.getRecoveryData("user@ironkey.dev"))
+                .isInstanceOf(RecoveryNotConfiguredException.class);
+    }
+
+    @Test
+    void getRecoveryData_unknownEmail_throwsInvalidCredentialsException() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+
+        when(userRepository.findByEmail("ghost@ironkey.dev")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.getRecoveryData("ghost@ironkey.dev"))
+                .isInstanceOf(InvalidCredentialsException.class);
+    }
+
+    // -------------------------------------------------------------------------
+    // recoverAccount
+    // -------------------------------------------------------------------------
+
+    @Test
+    void recoverAccount_validCode_updatesPasswordAndRevokesAllSessions() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setRecoveryEnabled(true);
+        testUser.setRecoveryCodeHash(sha256Base64Url(RECOVERY_CODE));
+
+        var request = new RecoverAccountRequest(
+                "user@ironkey.dev", RECOVERY_CODE, "newHashedPassword", "newProtectedKey", "newKeyIv"
+        );
+
+        when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.encode("newHashedPassword")).thenReturn("$2a$10$newEncoded");
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var result = authService.recoverAccount(request, IP, UA);
+
+        assertThat(result.accessToken()).isEqualTo("access.token");
+        verify(refreshTokenRepository).revokeAllByUserId(eq(testUser.getId()), any());
+        verify(userRepository).save(argThat(u ->
+                "$2a$10$newEncoded".equals(u.getMasterPasswordHash()) &&
+                "newProtectedKey".equals(u.getProtectedSymmetricKey())
+        ));
+    }
+
+    @Test
+    void recoverAccount_invalidCode_throwsInvalidRecoveryCodeException() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setRecoveryEnabled(true);
+        testUser.setRecoveryCodeHash(sha256Base64Url(RECOVERY_CODE));
+
+        var request = new RecoverAccountRequest(
+                "user@ironkey.dev", "WRONG-CODE-THAT-IS-LONG-ENOUGH", "newHash", "newKey", "newIv"
+        );
+
+        when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
+
+        assertThatThrownBy(() -> authService.recoverAccount(request, IP, UA))
+                .isInstanceOf(InvalidRecoveryCodeException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void recoverAccount_recoveryNotConfigured_throwsRecoveryNotConfiguredException() {
+        ReflectionTestUtils.setField(authService, "recoveryEnabled", true);
+        testUser.setRecoveryEnabled(false);
+
+        var request = new RecoverAccountRequest(
+                "user@ironkey.dev", RECOVERY_CODE, "newHash", "newKey", "newIv"
+        );
+
+        when(userRepository.findByEmailWithRoles("user@ironkey.dev")).thenReturn(Optional.of(testUser));
+
+        assertThatThrownBy(() -> authService.recoverAccount(request, IP, UA))
+                .isInstanceOf(RecoveryNotConfiguredException.class);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private static final String RECOVERY_CODE = "ABCDEF1234567890ABCDEF12345678";
+
+    private static String sha256Base64Url(String input) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private RegisterRequest buildRegisterRequest() {
         return new RegisterRequest(

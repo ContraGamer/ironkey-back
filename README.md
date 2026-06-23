@@ -22,7 +22,7 @@ IronKey es un gestor de contraseñas self-hosted similar a Bitwarden, pensado pa
 - **Cifrado en cliente**: AES-256-GCM. El JSON con nombre, URL, usuario, contraseña y notas de cada credencial se cifra antes de enviarse.
 - **KDF con Argon2id**: la contraseña maestra se deriva localmente con Argon2id antes de autenticar.
 - **2FA con TOTP**: compatible con Google Authenticator, Aegis y cualquier app TOTP estándar.
-- **Recuperación de cuenta**: opcional vía TOTP (activable con feature flag). Si está desactivado, la seguridad es zero-knowledge puro sin recuperación posible.
+- **Recuperación de cuenta**: opcional vía código de recuperación (activable con feature flag). El cliente genera el código, lo usa para cifrar la vault key, y el servidor solo guarda el hash SHA-256. Ni el código ni la vault key descifrada pasan por el servidor. Si está desactivado, la seguridad es zero-knowledge puro sin recuperación posible.
 - **Papelera con restauración**: las credenciales eliminadas van a la papelera y pueden recuperarse antes del purge definitivo.
 - **Gestión de sesiones**: múltiples sesiones con revocación individual o global. Refresh tokens rotativos opacos.
 - **Carpetas cifradas**: el nombre de la carpeta también se cifra en el cliente.
@@ -138,7 +138,7 @@ cp .env.example .env
 | `JWT_SECRET` | Secreto HMAC para JWT (mín. 64 caracteres) | — | ✅ |
 | `ENCRYPTION_PEPPER` | Pepper adicional para hashing (mín. 32 caracteres) | — | ✅ |
 | `CORS_ALLOWED_ORIGINS` | Orígenes CORS permitidos, separados por coma | — | ✅ |
-| `IRONKEY_RECOVERY_ENABLED` | Activa recuperación de cuenta vía TOTP | `false` | — |
+| `IRONKEY_RECOVERY_ENABLED` | Activa recuperación de cuenta vía recovery code | `false` | — |
 | `SERVER_PORT` | Puerto del backend | `8080` | — |
 
 > La app **no arranca** si alguna variable obligatoria no está definida.
@@ -218,7 +218,8 @@ POST   /api/v1/auth/register           Crear cuenta nueva
 GET    /api/v1/auth/kdf-params         Parámetros KDF para derivar la clave en el cliente
 POST   /api/v1/auth/login              Autenticar (devuelve tokens + vault key cifrada)
 POST   /api/v1/auth/refresh            Renovar access token con refresh token
-POST   /api/v1/auth/recovery/recover   Recuperar cuenta vía TOTP (si está habilitado)
+GET    /api/v1/auth/recovery/data      Obtener vault key de recuperación + KDF params (si está habilitado)
+POST   /api/v1/auth/recovery/recover   Recuperar cuenta con recovery code (si está habilitado)
 GET    /api/v1/health                  Estado del servidor
 ```
 
@@ -236,8 +237,8 @@ POST   /api/v1/auth/2fa/verify         Confirmar código y activar 2FA
 DELETE /api/v1/auth/2fa                Desactivar 2FA
 
 # Recuperación de cuenta (requiere IRONKEY_RECOVERY_ENABLED=true)
-POST   /api/v1/auth/recovery/setup     Configurar clave de recuperación
-DELETE /api/v1/auth/recovery           Desactivar recuperación
+POST   /api/v1/auth/recovery/setup     Configurar recovery code (requiere 2FA activo)
+DELETE /api/v1/auth/recovery           Desactivar recuperación (limpia hash + vault key cifrada)
 
 # Preferencias de usuario
 GET    /api/v1/settings                Leer preferencias (reprompt, timeout)
@@ -306,6 +307,51 @@ Todos los errores devuelven JSON con la misma estructura:
 
 ---
 
+## Flujo de recuperación de cuenta (para integradores)
+
+Requiere `IRONKEY_RECOVERY_ENABLED=true`. El recovery code se genera y gestiona íntegramente en el cliente — el servidor solo almacena su hash SHA-256.
+
+### Configurar la recuperación (una vez, con 2FA activo)
+
+```
+1. [CLIENTE] Genera un recovery code aleatorio (mín. 20 chars, p.ej. 32 chars base32)
+
+2. [CLIENTE] Argon2id(recoveryCode, kdfSalt, params) → recoveryKey
+   [CLIENTE] AES-256-GCM.encrypt(vaultKey, recoveryKey) → recoveryProtectedKey + IV
+   [CLIENTE] El usuario guarda el recovery code en papel/gestor offline
+
+3. POST /auth/recovery/setup  { totpCode, recoveryProtectedKey, recoveryProtectedKeyIv, recoveryCode }
+   ← 204 No Content
+   [SERVIDOR] SHA-256(recoveryCode) → almacena hash + vault key cifrada
+```
+
+### Recuperar la cuenta (cuando se pierde el master password)
+
+```
+1. GET  /auth/recovery/data?email=user@ejemplo.com
+        ← { recoveryProtectedKey, recoveryProtectedKeyIv,
+            kdfType, kdfIterations, kdfMemory, kdfParallelism, kdfSalt }
+
+2. [CLIENTE] Argon2id(recoveryCode, kdfSalt, params) → recoveryKey
+   [CLIENTE] AES-256-GCM.decrypt(recoveryProtectedKey, recoveryKey) → vaultKey
+
+3. [CLIENTE] Elige nuevo master password
+   [CLIENTE] Argon2id(newPassword, kdfSalt, params) → newMasterKey
+   [CLIENTE] AES-256-GCM.encrypt(vaultKey, newMasterKey) → newProtectedSymmetricKey + IV
+   [CLIENTE] Argon2id(newMasterKey, newPassword, 1 iter) → newMasterPasswordHash
+
+4. POST /auth/recovery/recover  { email, recoveryCode,
+                                  newMasterPasswordHash,
+                                  newProtectedSymmetricKey, newProtectedSymmetricKeyIv }
+        ← { accessToken, refreshToken, protectedSymmetricKey, ... }
+   [SERVIDOR] verifica SHA-256(recoveryCode) == hash almacenado
+   [SERVIDOR] actualiza password hash + protected key + revoca todas las sesiones activas
+```
+
+> **Nota de seguridad**: el recovery code nunca queda almacenado en el servidor en texto claro. El servidor no puede descifrar la vault key en ningún momento del proceso.
+
+---
+
 ## Migraciones de base de datos
 
 Flyway aplica las migraciones en orden al arrancar. No se requiere intervención manual:
@@ -321,6 +367,8 @@ Flyway aplica las migraciones en orden al arrancar. No se requiere intervención
 | V7 | Seed: roles USER y ADMIN |
 | V8 | Seed: 27 endpoints + asignación a roles |
 | V9 | Columnas `require_reprompt` y `vault_timeout_minutes` en `users` |
+| V10 | Columnas `failed_login_attempts` y `locked_until` en `users` (account lockout) |
+| V11 | Columna `recovery_code_hash` en `users` (verificación del recovery code) |
 
 Para ver el estado de migraciones en una instancia activa:
 
@@ -403,7 +451,7 @@ ironkey-back/
 │   │   │   ├── domain/
 │   │   │   │   ├── entity/         User, VaultItem, Folder, RefreshToken, Role, Resource
 │   │   │   │   └── repository/     6 repositorios con queries custom
-│   │   │   ├── exception/          IronKeyException y 6 subclases
+│   │   │   ├── exception/          IronKeyException y 8 subclases
 │   │   │   ├── security/
 │   │   │   │   ├── config/         SecurityConfig, TotpConfig
 │   │   │   │   ├── filter/         JwtAuthenticationFilter
@@ -412,7 +460,7 @@ ironkey-back/
 │   │   │   └── service/            AuthService, VaultService, FolderService, SettingsService
 │   │   └── resources/
 │   │       ├── application.yaml
-│   │       └── db/migration/       V1 → V9 (Flyway)
+│   │       └── db/migration/       V1 → V11 (Flyway)
 │   └── test/                       59 tests (unit + @WebMvcTest)
 ├── nginx/
 │   └── nginx.conf                  Reverse proxy con HTTPS y security headers
@@ -424,6 +472,40 @@ ironkey-back/
 ├── docker-compose.dev.yml          Desarrollo: solo postgres
 └── Dockerfile                      Multi-stage build con JRE 21 Alpine
 ```
+
+---
+
+## Pendientes del frontend (ironkey-ui)
+
+### Recovery code — Setup
+
+Ubicación sugerida: página de **Settings → Seguridad**.
+
+- [ ] Sección "Recuperación de cuenta" con estado activo/inactivo
+- [ ] Botón "Activar recuperación" que solicita TOTP para confirmar
+- [ ] Generación del recovery code en cliente: `crypto.getRandomValues` → base32, 32 chars
+- [ ] Derivar `recovery_key = Argon2id(recoveryCode, kdfSalt, params)` con los mismos parámetros del login
+- [ ] Cifrar `vaultKey` (ya en memoria) con `recovery_key` → `recoveryProtectedKey` + IV
+- [ ] Llamar `POST /api/v1/auth/recovery/setup` con `{ totpCode, recoveryProtectedKey, recoveryProtectedKeyIv, recoveryCode }`
+- [ ] Mostrar el recovery code **una sola vez** con botones de copiar y descargar como `.txt`
+- [ ] Warning claro: "Si pierdes este código no podremos recuperar tu cuenta"
+- [ ] Botón "Desactivar recuperación" que llama `DELETE /api/v1/auth/recovery` con TOTP
+
+> **Restricción**: el recovery code nunca debe guardarse en `localStorage` ni en estado persistente. Solo en memoria mientras el usuario lo visualiza.
+
+### Recovery code — Recuperación de cuenta
+
+Ubicación sugerida: link "¿Olvidaste tu contraseña?" en la pantalla de **login**.
+
+- [ ] Formulario: email + recovery code
+- [ ] Llamar `GET /api/v1/auth/recovery/data?email=...` → obtiene `recoveryProtectedKey`, IV y KDF params
+- [ ] Derivar `recovery_key = Argon2id(recoveryCode, kdfSalt, params)`
+- [ ] Descifrar `vaultKey` con `recovery_key`
+- [ ] Formulario: nuevo master password (con confirmación)
+- [ ] Derivar `newMasterKey = Argon2id(newPassword, kdfSalt, params)`
+- [ ] Re-cifrar `vaultKey` con `newMasterKey` → `newProtectedSymmetricKey` + IV
+- [ ] Llamar `POST /api/v1/auth/recovery/recover` con `{ email, recoveryCode, newMasterPasswordHash, newProtectedSymmetricKey, newProtectedSymmetricKeyIv }`
+- [ ] Iniciar sesión con los tokens recibidos en la respuesta
 
 ---
 

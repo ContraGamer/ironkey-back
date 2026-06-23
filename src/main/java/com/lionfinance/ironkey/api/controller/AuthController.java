@@ -110,6 +110,11 @@ public class AuthController {
     // Recovery — gated por feature flag del servidor
     // -------------------------------------------------------------------------
 
+    @GetMapping("/recovery/data")
+    public RecoveryDataResponse getRecoveryData(@RequestParam @NotBlank @Email String email) {
+        return authService.getRecoveryData(email);
+    }
+
     @PostMapping("/recovery/setup")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void setupRecovery(@Valid @RequestBody RecoverySetupRequest request,

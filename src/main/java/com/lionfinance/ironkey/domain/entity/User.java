@@ -71,6 +71,9 @@ public class User {
     @Builder.Default
     private Boolean recoveryEnabled = false;
 
+    @Column(name = "recovery_code_hash", columnDefinition = "TEXT")
+    private String recoveryCodeHash;
+
     @Column(name = "recovery_protected_key", columnDefinition = "TEXT")
     private String recoveryProtectedKey;
 

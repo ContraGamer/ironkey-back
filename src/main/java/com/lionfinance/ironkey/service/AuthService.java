@@ -267,6 +267,7 @@ public class AuthService {
 
         verifyTotp(user, request.totpCode());
         user.setRecoveryEnabled(true);
+        user.setRecoveryCodeHash(hashToken(request.recoveryCode()));
         user.setRecoveryProtectedKey(request.recoveryProtectedKey());
         user.setRecoveryProtectedKeyIv(request.recoveryProtectedKeyIv());
         userRepository.save(user);
@@ -280,7 +281,32 @@ public class AuthService {
 
         verifyTotp(user, totpCode);
         user.setRecoveryEnabled(false);
+        user.setRecoveryCodeHash(null);
+        user.setRecoveryProtectedKey(null);
+        user.setRecoveryProtectedKeyIv(null);
         userRepository.save(user);
+    }
+
+    @Transactional(readOnly = true)
+    public RecoveryDataResponse getRecoveryData(String email) {
+        if (!recoveryEnabled) throw new RecoveryNotEnabledException();
+
+        var user = userRepository.findByEmail(email)
+                .orElseThrow(InvalidCredentialsException::new);
+
+        if (!user.getRecoveryEnabled()) {
+            throw new RecoveryNotConfiguredException();
+        }
+
+        return new RecoveryDataResponse(
+                user.getRecoveryProtectedKey(),
+                user.getRecoveryProtectedKeyIv(),
+                user.getKdfType(),
+                user.getKdfIterations(),
+                user.getKdfMemory(),
+                user.getKdfParallelism(),
+                user.getKdfSalt()
+        );
     }
 
     public AuthResponse recoverAccount(RecoverAccountRequest request, String ip, String userAgent) {
@@ -290,10 +316,13 @@ public class AuthService {
                 .orElseThrow(InvalidCredentialsException::new);
 
         if (!user.getRecoveryEnabled()) {
-            throw new IronKeyException("Este usuario no tiene recuperación configurada");
+            throw new RecoveryNotConfiguredException();
         }
 
-        verifyTotp(user, request.totpCode());
+        if (!hashToken(request.recoveryCode()).equals(user.getRecoveryCodeHash())) {
+            throw new InvalidRecoveryCodeException();
+        }
+
         user.setMasterPasswordHash(passwordEncoder.encode(request.newMasterPasswordHash()));
         user.setProtectedSymmetricKey(request.newProtectedSymmetricKey());
         user.setProtectedSymmetricKeyIv(request.newProtectedSymmetricKeyIv());
