@@ -8,4 +8,9 @@ public class TotpRequiredException extends IronKeyException {
     public TotpRequiredException() {
         super("Se requiere código 2FA");
     }
+
+    @Override
+    public String getCode() {
+        return "TOTP_REQUIRED";
+    }
 }

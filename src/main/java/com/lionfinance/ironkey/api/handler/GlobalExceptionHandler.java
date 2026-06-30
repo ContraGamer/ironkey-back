@@ -40,6 +40,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .status(status.value())
                 .error(status.getReasonPhrase())
                 .message(ex.getMessage())
+                .code(ex.getCode())
                 .path(request.getRequestURI())
                 .build());
     }
