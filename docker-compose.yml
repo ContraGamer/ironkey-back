@@ -55,6 +55,16 @@ services:
       start_period: 90s
 
   # ---------------------------------------------------------------------------
+  # Frontend React (build estático servido por nginx interno)
+  # ---------------------------------------------------------------------------
+  ironkey-front:
+    image: registry.contragamer.com/ironkey-ui:latest
+    container_name: ironkey-front
+    restart: unless-stopped
+    networks:
+      - ironkey-network
+
+  # ---------------------------------------------------------------------------
   # Nginx — reverse proxy + SSL
   #
   # IMPORTANTE — Bootstrap de SSL (primera vez):
@@ -64,7 +74,7 @@ services:
   #      docker run --rm -v /etc/letsencrypt:/etc/letsencrypt \
   #        -v ironkey-back_certbot_webroot:/var/www/certbot \
   #        certbot/certbot certonly --webroot \
-  #        -w /var/www/certbot -d tudominio.com --email tuemail@ejemplo.com --agree-tos
+  #        -w /var/www/certbot -d testironkey.contragamer.com --email tuemail@ejemplo.com --agree-tos
   #   4. Descomenta el bloque HTTPS en nginx.conf
   #   5. docker compose restart nginx
   # ---------------------------------------------------------------------------
@@ -75,6 +85,8 @@ services:
     depends_on:
       ironkey-back:
         condition: service_healthy
+      ironkey-front:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"

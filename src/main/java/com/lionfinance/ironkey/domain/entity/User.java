@@ -71,11 +71,31 @@ public class User {
     @Builder.Default
     private Boolean recoveryEnabled = false;
 
+    @Column(name = "recovery_code_hash", columnDefinition = "TEXT")
+    private String recoveryCodeHash;
+
     @Column(name = "recovery_protected_key", columnDefinition = "TEXT")
     private String recoveryProtectedKey;
 
     @Column(name = "recovery_protected_key_iv", length = 255)
     private String recoveryProtectedKeyIv;
+
+    // Preferencias del usuario
+    @Column(name = "require_reprompt", nullable = false)
+    @Builder.Default
+    private Boolean requireReprompt = false;
+
+    @Column(name = "vault_timeout_minutes", nullable = false)
+    @Builder.Default
+    private Integer vaultTimeoutMinutes = 15;
+
+    // Account lockout
+    @Column(name = "failed_login_attempts", nullable = false)
+    @Builder.Default
+    private Integer failedLoginAttempts = 0;
+
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

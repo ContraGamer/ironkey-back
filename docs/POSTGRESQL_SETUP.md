@@ -109,16 +109,20 @@ Si responde con la versión de PostgreSQL, la configuración es correcta.
 El backend de IronKey no arranca si estas variables no están definidas. Créalas en el servidor
 antes de levantar la aplicación.
 
-| Variable | Descripción | Ejemplo |
-|----------|-------------|---------|
-| `DB_HOST` | Host de PostgreSQL | `localhost` o IP del servidor |
-| `DB_PORT` | Puerto (default 5432) | `5432` |
-| `DB_NAME` | Nombre de la base de datos | `ironkey_db` |
-| `DB_USER` | Usuario de la DB | `ironkey_user` |
-| `DB_PASS` | Contraseña del usuario | `tu_contraseña_segura` |
-| `JWT_SECRET` | Secreto para firmar tokens JWT (mínimo 64 chars) | ver sección 5 |
-| `ENCRYPTION_PEPPER` | Pepper adicional para hashing (mínimo 32 chars) | ver sección 5 |
-| `IRONKEY_RECOVERY_ENABLED` | Activa recuperación por TOTP | `false` (default) |
+| Variable | Descripción | Default | Ejemplo |
+|----------|-------------|---------|---------|
+| `DB_HOST` | Host de PostgreSQL | — | `localhost` o IP del servidor |
+| `DB_PORT` | Puerto de PostgreSQL | `5432` | `5432` |
+| `DB_NAME` | Nombre de la base de datos | — | `ironkey_db` |
+| `DB_USER` | Usuario de la DB | — | `ironkey_user` |
+| `DB_PASS` | Contraseña del usuario | — | `tu_contraseña_segura` |
+| `JWT_SECRET` | Secreto para firmar tokens JWT (mínimo 64 chars) | — | ver sección 5 |
+| `ENCRYPTION_PEPPER` | Pepper adicional para hashing (mínimo 32 chars) | — | ver sección 5 |
+| `IRONKEY_RECOVERY_ENABLED` | Activa recuperación de cuenta vía TOTP | `false` | `false` |
+| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para CORS (separados por coma) | — | `https://tudominio.com` |
+| `SERVER_PORT` | Puerto en el que escucha el backend | `8080` | `8080` |
+
+> Las variables sin default son **obligatorias** — la app no arranca si faltan.
 
 ### En Linux/VPS — archivo `.env` para Docker Compose
 
@@ -133,6 +137,8 @@ JWT_SECRET=cambia_esto_por_un_string_muy_largo_y_aleatorio_de_al_menos_64_caract
 ENCRYPTION_PEPPER=otro_string_aleatorio_de_al_menos_32_caracteres
 
 IRONKEY_RECOVERY_ENABLED=false
+
+CORS_ALLOWED_ORIGINS=https://tudominio.com
 ```
 
 ### En Linux/VPS — variables de sistema (alternativa)
@@ -146,6 +152,7 @@ export DB_PASS=tu_contraseña_segura_aqui
 export JWT_SECRET=...
 export ENCRYPTION_PEPPER=...
 export IRONKEY_RECOVERY_ENABLED=false
+export CORS_ALLOWED_ORIGINS=https://tudominio.com
 ```
 
 ---
@@ -210,18 +217,27 @@ Al arrancar el backend por primera vez, Flyway crea automáticamente todas las t
 ejecutando los scripts SQL en orden:
 
 ```
-V1__create_users.sql          → tabla users
-V2__create_vault_items.sql    → tabla vault_items, folders
-V3__create_resources.sql      → tabla resources con todos los endpoints
-V4__create_refresh_tokens.sql → tabla refresh_tokens
-V5__seed_roles.sql            → roles iniciales (USER, ADMIN)
-V6__seed_resources.sql        → inserts de recursos/endpoints
+V1__create_users_table.sql        → tabla users (KDF params, vault key cifrada, TOTP, recovery, preferencias)
+V2__create_folders_table.sql      → tabla folders (nombre cifrado en cliente)
+V3__create_vault_items_table.sql  → tabla vault_items + índices (blob cifrado + papelera)
+V4__create_refresh_tokens_table.sql → tabla refresh_tokens (sesiones con device info)
+V5__create_roles_tables.sql       → tablas roles + user_roles
+V6__create_resources_tables.sql   → tablas resources + role_resources
+V7__seed_roles.sql                → roles iniciales: USER y ADMIN
+V8__seed_resources.sql            → 27 endpoints registrados + asignación a roles
+V9__add_user_preferences.sql      → columnas require_reprompt y vault_timeout_minutes en users
 ```
 
 No necesitas ejecutar ningún SQL manualmente. Solo necesitas que la base de datos y el
 usuario existan (pasos 2 y 3).
 
 Si una migración falla, el backend no arranca y en los logs verás exactamente qué falló.
+
+> **Nota:** Flyway lleva un registro de las migraciones aplicadas en la tabla `flyway_schema_history`.
+> Si necesitas ver qué versiones están aplicadas en una instancia:
+> ```sql
+> SELECT version, description, installed_on, success FROM flyway_schema_history ORDER BY installed_rank;
+> ```
 
 ---
 

@@ -1,6 +1,7 @@
 package com.lionfinance.ironkey.security.config;
 
 import com.lionfinance.ironkey.security.filter.JwtAuthenticationFilter;
+import com.lionfinance.ironkey.security.filter.RateLimitFilter;
 import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetailsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RateLimitFilter rateLimitFilter;
     private final IronKeyUserDetailsService userDetailsService;
 
     @Value("${ironkey.cors.allowed-origins}")
@@ -51,6 +53,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/kdf-params",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh",
+                                "/api/v1/auth/recovery/data",
                                 "/api/v1/auth/recovery/recover",
                                 "/api/v1/health"
                         ).permitAll()
@@ -61,14 +64,15 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtAuthenticationFilter, RateLimitFilter.class)
                 .build();
     }
 
     @Bean
     public DaoAuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
-        provider.setUserDetailsService(userDetailsService);
+        // Spring Security 7: UserDetailsService es requerido en el constructor
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder());
         return provider;
     }

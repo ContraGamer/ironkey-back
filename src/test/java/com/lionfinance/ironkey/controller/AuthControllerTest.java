@@ -40,7 +40,7 @@ class AuthControllerTest {
     @MockitoBean AuthService authService;
 
     private static final AuthResponse MOCK_AUTH = new AuthResponse(
-            "access.token", "refresh.token", "encKey", "encIv"
+            "access.token", "refresh.token", "encKey", "encIv", false, 15
     );
 
     // -------------------------------------------------------------------------

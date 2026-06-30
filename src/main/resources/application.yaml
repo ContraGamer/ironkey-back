@@ -44,20 +44,15 @@ ironkey:
     enabled: ${IRONKEY_RECOVERY_ENABLED:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  security:
+    max-failed-login-attempts: 5
+    lockout-duration-minutes: 15
 
 ---
 spring:
   config:
     activate:
       on-profile: dev
-
-  datasource:
-    url: jdbc:postgresql://localhost:5432/ironkey_db
-    username: ironkey_user
-    password: dev_password
-
-  jpa:
-    show-sql: true
 
 ironkey:
   jwt:
@@ -70,3 +65,14 @@ ironkey:
     enabled: false
   cors:
     allowed-origins: http://localhost:3000,http://localhost:5173
+  security:
+    max-failed-login-attempts: 5
+    lockout-duration-minutes: 15
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ironkey_db
+    username: ironkey_user
+    password: dev_password
+
+  jpa:
+    show-sql: true

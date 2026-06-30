@@ -17,6 +17,9 @@ public class ErrorResponse {
     private final String message;
     private final String path;
 
+    // Código semántico opcional — presente solo en errores con identificador estable (ej. TOTP_REQUIRED)
+    private final String code;
+
     @Builder.Default
     private final String timestamp = Instant.now().toString();
 

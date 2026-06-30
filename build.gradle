@@ -37,6 +37,7 @@ dependencies {
 	runtimeOnly 'org.postgresql:postgresql'
 
 	// Flyway
+	implementation 'org.springframework.boot:spring-boot-flyway'
 	implementation 'org.flywaydb:flyway-core'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 
@@ -47,6 +48,10 @@ dependencies {
 
 	// TOTP — 2FA compatible con Google Authenticator / Aegis
 	implementation 'dev.samstevens.totp:totp:1.7.1'
+
+	// Rate limiting
+	implementation 'com.bucket4j:bucket4j-core:8.10.1'
+	implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
 
 	// QR Code — para generar el QR de setup de 2FA
 	implementation 'com.google.zxing:javase:3.5.3'
