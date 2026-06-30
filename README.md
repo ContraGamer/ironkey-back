@@ -107,7 +107,7 @@ Esto levanta PostgreSQL en `localhost:5432` con:
 SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 ```
 
-Al arrancar, **Flyway ejecuta automáticamente las 9 migraciones** y crea todo el esquema. No necesitas ejecutar ningún SQL manualmente.
+Al arrancar, **Flyway ejecuta automáticamente las 11 migraciones** y crea todo el esquema. No necesitas ejecutar ningún SQL manualmente.
 
 ### 4. Verificar que funciona
 
@@ -270,16 +270,28 @@ Todos los errores devuelven JSON con la misma estructura:
 {
   "status": 401,
   "error": "Unauthorized",
-  "message": "Credenciales inválidas",
+  "message": "Se requiere código 2FA",
+  "code": "TOTP_REQUIRED",
   "path": "/api/v1/auth/login",
-  "timestamp": "2026-06-19T10:00:00Z",
-  "fieldErrors": {
-    "email": "must be a well-formed email address"
-  }
+  "timestamp": "2026-06-19T10:00:00Z"
 }
 ```
 
-`fieldErrors` solo aparece en errores de validación (400).
+| Campo | Siempre presente | Descripción |
+|-------|-----------------|-------------|
+| `status` | ✅ | Código HTTP |
+| `error` | ✅ | Texto HTTP estándar del código |
+| `message` | ✅ | Mensaje legible para el usuario |
+| `path` | ✅ | Endpoint que generó el error |
+| `timestamp` | ✅ | ISO-8601 UTC |
+| `code` | Solo en errores semánticos | Identificador estable para lógica de cliente (ver tabla) |
+| `fieldErrors` | Solo en errores de validación (400) | Mapa campo → mensaje |
+
+#### Códigos semánticos (`code`)
+
+| Valor | HTTP | Cuándo se devuelve |
+|-------|------|--------------------|
+| `TOTP_REQUIRED` | 401 | Login exitoso pero el usuario tiene 2FA activo — el cliente debe pedir el código TOTP |
 
 ---
 
@@ -401,9 +413,9 @@ El pipeline en `.drone.yml` tiene tres pasos:
 
 | Paso | Rama | Qué hace |
 |------|------|----------|
-| `build-and-test` | `develop` y `main` | Compila y corre todos los tests |
-| `docker-build-and-push` | Solo `main` | Construye imagen Docker y la sube al registry |
-| `deploy` | Solo `main` | Conecta al VPS por SSH y ejecuta `docker compose up` |
+| `build-and-test` | `develop` y `main` | Compila con `-x test` (tests pendientes de activar en CI) |
+| `docker-build-and-push` | `develop` y `main` | Construye imagen Docker y la sube al registry |
+| `deploy` | `develop` y `main` | Conecta al VPS por SSH y ejecuta `docker compose up` |
 
 ### Secrets requeridos en Drone
 
@@ -411,14 +423,13 @@ Configura estos secrets en el panel de Drone antes del primer deploy:
 
 | Secret | Descripción |
 |--------|-------------|
-| `REGISTRY_URL` | URL del registry Docker privado |
-| `IMAGE_REPO` | Ruta completa de la imagen en el registry |
-| `REGISTRY_USERNAME` | Usuario del registry |
-| `REGISTRY_PASSWORD` | Contraseña del registry |
+| `REGISTRY_USERNAME` | Usuario del registry Docker privado |
+| `REGISTRY_PASSWORD` | Contraseña del registry Docker privado |
 | `DEPLOY_HOST` | IP o dominio del VPS |
 | `DEPLOY_USER` | Usuario SSH del VPS |
 | `DEPLOY_SSH_KEY` | Clave privada SSH (contenido completo) |
-| `DEPLOY_PATH` | Ruta del proyecto en el VPS |
+
+> La URL del registry (`registry.contragamer.com`), la ruta de la imagen y el path de deploy en el VPS están hardcodeados en `.drone.yml` para evitar errores por secrets mal configurados.
 
 ### Flujo de trabajo con ramas
 
@@ -475,37 +486,28 @@ ironkey-back/
 
 ---
 
-## Pendientes del frontend (ironkey-ui)
+## Changelog
 
-### Recovery code — Setup
+### 2026-06-30 — Bugs resueltos en ironkey-ui + campo `code` en errores
 
-Ubicación sugerida: página de **Settings → Seguridad**.
+#### Backend: campo `code` en respuestas de error (`49b6a78`)
 
-- [ ] Sección "Recuperación de cuenta" con estado activo/inactivo
-- [ ] Botón "Activar recuperación" que solicita TOTP para confirmar
-- [ ] Generación del recovery code en cliente: `crypto.getRandomValues` → base32, 32 chars
-- [ ] Derivar `recovery_key = Argon2id(recoveryCode, kdfSalt, params)` con los mismos parámetros del login
-- [ ] Cifrar `vaultKey` (ya en memoria) con `recovery_key` → `recoveryProtectedKey` + IV
-- [ ] Llamar `POST /api/v1/auth/recovery/setup` con `{ totpCode, recoveryProtectedKey, recoveryProtectedKeyIv, recoveryCode }`
-- [ ] Mostrar el recovery code **una sola vez** con botones de copiar y descargar como `.txt`
-- [ ] Warning claro: "Si pierdes este código no podremos recuperar tu cuenta"
-- [ ] Botón "Desactivar recuperación" que llama `DELETE /api/v1/auth/recovery` con TOTP
+El cliente no tenía forma confiable de distinguir "credenciales inválidas" de "login correcto pero falta el código TOTP" — ambos devuelven HTTP 401. El frontend detectaba el caso por el texto del mensaje, frágil a cualquier cambio de wording.
 
-> **Restricción**: el recovery code nunca debe guardarse en `localStorage` ni en estado persistente. Solo en memoria mientras el usuario lo visualiza.
+- `ErrorResponse` — nuevo campo `code` (nullable, omitido si null vía `@JsonInclude(NON_NULL)`)
+- `IronKeyException` — método `getCode()` que retorna `null` por defecto; subclases pueden sobreescribirlo
+- `TotpRequiredException` — sobreescribe `getCode()` → `"TOTP_REQUIRED"`
+- `GlobalExceptionHandler` — incluye `ex.getCode()` en la respuesta de cualquier `IronKeyException`
 
-### Recovery code — Recuperación de cuenta
+#### Frontend (ironkey-ui): 5 bugs resueltos
 
-Ubicación sugerida: link "¿Olvidaste tu contraseña?" en la pantalla de **login**.
-
-- [ ] Formulario: email + recovery code
-- [ ] Llamar `GET /api/v1/auth/recovery/data?email=...` → obtiene `recoveryProtectedKey`, IV y KDF params
-- [ ] Derivar `recovery_key = Argon2id(recoveryCode, kdfSalt, params)`
-- [ ] Descifrar `vaultKey` con `recovery_key`
-- [ ] Formulario: nuevo master password (con confirmación)
-- [ ] Derivar `newMasterKey = Argon2id(newPassword, kdfSalt, params)`
-- [ ] Re-cifrar `vaultKey` con `newMasterKey` → `newProtectedSymmetricKey` + IV
-- [ ] Llamar `POST /api/v1/auth/recovery/recover` con `{ email, recoveryCode, newMasterPasswordHash, newProtectedSymmetricKey, newProtectedSymmetricKeyIv }`
-- [ ] Iniciar sesión con los tokens recibidos en la respuesta
+| Commit | Descripción |
+|--------|-------------|
+| `8597b11` | **IV y ciphertext como campos separados** — `encryptVaultItem` enviaba un string combinado `"iv:ciphertext"` como `encryptedData`; el backend requería `iv` como campo `@NotBlank` separado → 400 en todos los creates y updates. También corregida la lectura: `decryptVaultItem` ahora recibe `(encryptedData, iv)` por separado como los devuelve el servidor. |
+| `235b1f7` | **Desactivar 2FA requería TOTP** — `DELETE /auth/2fa` se llamaba sin body; el backend requiere `{ totpCode }`. Añadido modal de confirmación en Settings que pide el código antes de ejecutar. |
+| `d1e37cd` | **Editar un item eliminaba su carpeta** — `updateItem` no enviaba `folderId`; el backend interpreta `null` como "mover al vault raíz". Ahora se preserva la carpeta original del item. |
+| `8670850` | **Recarga redirigía a `/login` en vez de `/unlock`** — cuando la `vaultKey` se pierde al recargar (por diseño zero-knowledge) pero el refresh token sigue válido, la pantalla correcta es `/unlock` (email pre-cargado, solo pide contraseña). |
+| `4566c6d` | **Detección de TOTP por `code` en vez de string** — aprovecha el nuevo campo `code: "TOTP_REQUIRED"` del backend; elimina la condición frágil basada en el texto del mensaje. |
 
 ---
 
