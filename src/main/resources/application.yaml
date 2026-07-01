@@ -23,6 +23,10 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Tomcat RemoteIpValve: honra X-Forwarded-For/Proto SOLO desde proxies internos de confianza
+  # (rangos privados por defecto, cubre nginx en la red Docker). Así request.getRemoteAddr()
+  # devuelve la IP real del cliente sin que este pueda falsearla para evadir el rate limit.
+  forward-headers-strategy: native
 
 management:
   endpoints:

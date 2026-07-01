@@ -23,7 +23,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
 
-        if (!request.getMethod().equals("POST")) {
+        // Las preflight CORS (OPTIONS) no deben consumir cupo de rate limit.
+        if (request.getMethod().equals("OPTIONS")) {
             chain.doFilter(request, response);
             return;
         }
@@ -35,6 +36,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             case "/api/v1/auth/login"             -> rateLimitService.tryConsumeLogin(ip);
             case "/api/v1/auth/register"          -> rateLimitService.tryConsumeRegister(ip);
             case "/api/v1/auth/recovery/recover"  -> rateLimitService.tryConsumeRecovery(ip);
+            // GET públicos que exponen existencia de cuenta y parámetros KDF
+            case "/api/v1/auth/kdf-params"        -> rateLimitService.tryConsumeSensitiveRead(ip);
+            case "/api/v1/auth/recovery/data"     -> rateLimitService.tryConsumeSensitiveRead(ip);
             default -> true;
         };
 
@@ -51,11 +55,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
+    // getRemoteAddr() ya devuelve la IP real del cliente: Tomcat resuelve X-Forwarded-For
+    // vía RemoteIpValve (server.forward-headers-strategy=native) confiando solo en proxies
+    // internos. Parsear el header manualmente permitiría spoofear la IP y evadir el rate limit.
     private String extractIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
         return request.getRemoteAddr();
     }
 }

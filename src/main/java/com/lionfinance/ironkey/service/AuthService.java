@@ -52,6 +52,11 @@ public class AuthService {
     @Value("${ironkey.recovery.enabled}")
     private boolean recoveryEnabled;
 
+    // Hash BCrypt fijo y válido (de un valor arbitrario) usado solo para gastar el mismo
+    // tiempo de cómputo cuando el email no existe. Nunca puede coincidir con una password real.
+    private static final String DUMMY_BCRYPT_HASH =
+            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
     // -------------------------------------------------------------------------
     // Registro
     // -------------------------------------------------------------------------
@@ -104,8 +109,14 @@ public class AuthService {
     // -------------------------------------------------------------------------
 
     public AuthResponse login(LoginRequest request, String ip, String userAgent) {
-        var user = userRepository.findByEmailWithRoles(request.email())
-                .orElseThrow(InvalidCredentialsException::new);
+        var user = userRepository.findByEmailWithRoles(request.email()).orElse(null);
+
+        // Ejecuta un BCrypt "dummy" cuando el email no existe para igualar el tiempo de
+        // respuesta con el caso de usuario existente y no filtrar qué emails están registrados.
+        if (user == null) {
+            passwordEncoder.matches(request.masterPasswordHash(), DUMMY_BCRYPT_HASH);
+            throw new InvalidCredentialsException();
+        }
 
         // Verificar si la cuenta está bloqueada
         if (user.getLockedUntil() != null && OffsetDateTime.now().isBefore(user.getLockedUntil())) {
@@ -121,7 +132,14 @@ public class AuthService {
             if (request.totpCode() == null || request.totpCode().isBlank()) {
                 throw new TotpRequiredException();
             }
-            verifyTotp(user, request.totpCode());
+            // Un código TOTP inválido también cuenta para el lockout — de lo contrario el
+            // segundo factor sería fuerza-bruteable de forma ilimitada con la password ya conocida.
+            try {
+                verifyTotp(user, request.totpCode());
+            } catch (InvalidTotpException e) {
+                registerFailedAttempt(user);
+                throw e;
+            }
         }
 
         // Login exitoso — resetear contador
@@ -319,7 +337,7 @@ public class AuthService {
             throw new RecoveryNotConfiguredException();
         }
 
-        if (!hashToken(request.recoveryCode()).equals(user.getRecoveryCodeHash())) {
+        if (!constantTimeEquals(hashToken(request.recoveryCode()), user.getRecoveryCodeHash())) {
             throw new InvalidRecoveryCodeException();
         }
 
@@ -381,6 +399,15 @@ public class AuthService {
                 user.getRequireReprompt(),
                 user.getVaultTimeoutMinutes(),
                 user.getRecoveryEnabled()
+        );
+    }
+
+    // Comparación en tiempo constante para no filtrar información vía timing al verificar hashes.
+    private boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) return false;
+        return MessageDigest.isEqual(
+                a.getBytes(StandardCharsets.UTF_8),
+                b.getBytes(StandardCharsets.UTF_8)
         );
     }
 

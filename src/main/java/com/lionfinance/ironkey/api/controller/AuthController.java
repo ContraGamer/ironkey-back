@@ -139,12 +139,10 @@ public class AuthController {
     // Helpers privados
     // -------------------------------------------------------------------------
 
+    // getRemoteAddr() ya devuelve la IP real: Tomcat resuelve X-Forwarded-For vía RemoteIpValve
+    // (server.forward-headers-strategy=native) confiando solo en proxies internos. Parsear el
+    // header a mano permitiría al cliente falsear la IP que se persiste en las sesiones.
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            // X-Forwarded-For puede contener múltiples IPs — la primera es la del cliente real
-            return forwarded.split(",")[0].trim();
-        }
         return request.getRemoteAddr();
     }
 

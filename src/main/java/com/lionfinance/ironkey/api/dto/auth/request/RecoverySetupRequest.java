@@ -12,13 +12,15 @@ public record RecoverySetupRequest(
 
         // Vault key cifrada con la recovery_derived_key (cliente la genera)
         @NotBlank
+        @Size(max = 5_000)
         String recoveryProtectedKey,
 
         @NotBlank
+        @Size(max = 255)
         String recoveryProtectedKeyIv,
 
         // Recovery code en texto plano generado por el cliente — el servidor almacena su hash
         @NotBlank
-        @Size(min = 20, message = "El código de recuperación debe tener al menos 20 caracteres")
+        @Size(min = 20, max = 200, message = "El código de recuperación debe tener entre 20 y 200 caracteres")
         String recoveryCode
 ) {}
