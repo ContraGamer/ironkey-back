@@ -2,6 +2,7 @@ package com.lionfinance.ironkey.api.controller;
 
 import com.lionfinance.ironkey.api.dto.vault.request.CreateVaultItemRequest;
 import com.lionfinance.ironkey.api.dto.vault.request.UpdateVaultItemRequest;
+import com.lionfinance.ironkey.api.dto.vault.response.PasswordHistoryResponse;
 import com.lionfinance.ironkey.api.dto.vault.response.VaultItemResponse;
 import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetails;
 import com.lionfinance.ironkey.service.VaultService;
@@ -87,5 +88,11 @@ public class VaultController {
     public void purgeItem(@PathVariable UUID id,
                           @AuthenticationPrincipal IronKeyUserDetails principal) {
         vaultService.purgeItem(principal.getUserId(), id);
+    }
+
+    @GetMapping("/{id}/history")
+    public List<PasswordHistoryResponse> getItemHistory(@PathVariable UUID id,
+                                                        @AuthenticationPrincipal IronKeyUserDetails principal) {
+        return vaultService.getItemHistory(principal.getUserId(), id);
     }
 }

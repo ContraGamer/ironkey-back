@@ -2,10 +2,13 @@ package com.lionfinance.ironkey.service;
 
 import com.lionfinance.ironkey.api.dto.vault.request.CreateVaultItemRequest;
 import com.lionfinance.ironkey.api.dto.vault.request.UpdateVaultItemRequest;
+import com.lionfinance.ironkey.api.dto.vault.response.PasswordHistoryResponse;
 import com.lionfinance.ironkey.api.dto.vault.response.VaultItemResponse;
 import com.lionfinance.ironkey.domain.entity.Folder;
+import com.lionfinance.ironkey.domain.entity.PasswordHistory;
 import com.lionfinance.ironkey.domain.entity.VaultItem;
 import com.lionfinance.ironkey.domain.repository.FolderRepository;
+import com.lionfinance.ironkey.domain.repository.PasswordHistoryRepository;
 import com.lionfinance.ironkey.domain.repository.UserRepository;
 import com.lionfinance.ironkey.domain.repository.VaultItemRepository;
 import com.lionfinance.ironkey.exception.ResourceNotFoundException;
@@ -25,6 +28,7 @@ public class VaultService {
     private final VaultItemRepository vaultItemRepository;
     private final FolderRepository folderRepository;
     private final UserRepository userRepository;
+    private final PasswordHistoryRepository historyRepository;
 
     // -------------------------------------------------------------------------
     // Vault activo
@@ -65,11 +69,31 @@ public class VaultService {
                 .filter(i -> !i.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Ítem"));
 
+        // Persist current blob to history before overwriting
+        historyRepository.save(PasswordHistory.builder()
+                .vaultItem(item)
+                .encryptedData(item.getEncryptedData())
+                .iv(item.getIv())
+                .build());
+        historyRepository.trimHistory(itemId);
+
         item.setEncryptedData(request.encryptedData());
         item.setIv(request.iv());
         item.setFolder(resolveFolder(request.folderId(), userId));
 
         return toResponse(vaultItemRepository.save(item));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PasswordHistoryResponse> getItemHistory(UUID userId, UUID itemId) {
+        vaultItemRepository.findByIdAndUserId(itemId, userId)
+                .filter(i -> !i.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Ítem"));
+
+        return historyRepository.findTop10ByVaultItemIdOrderByCreatedAtDesc(itemId)
+                .stream()
+                .map(h -> new PasswordHistoryResponse(h.getId(), h.getEncryptedData(), h.getIv(), h.getCreatedAt()))
+                .toList();
     }
 
     // Soft delete — mueve a papelera
