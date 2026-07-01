@@ -14,5 +14,8 @@ public record AuthResponse(
         // Preferencias del usuario — la extensión y el front las leen al hacer login
         boolean requireReprompt,
 
-        int vaultTimeoutMinutes
+        int vaultTimeoutMinutes,
+
+        // Estado de recovery — permite que el cliente muestre el indicador sin llamada extra
+        boolean recoveryEnabled
 ) {}

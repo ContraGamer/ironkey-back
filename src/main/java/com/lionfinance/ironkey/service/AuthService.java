@@ -379,7 +379,8 @@ public class AuthService {
                 user.getProtectedSymmetricKey(),
                 user.getProtectedSymmetricKeyIv(),
                 user.getRequireReprompt(),
-                user.getVaultTimeoutMinutes()
+                user.getVaultTimeoutMinutes(),
+                user.getRecoveryEnabled()
         );
     }
 
