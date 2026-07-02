@@ -6,8 +6,10 @@ import com.lionfinance.ironkey.domain.entity.Folder;
 import com.lionfinance.ironkey.domain.entity.User;
 import com.lionfinance.ironkey.domain.entity.VaultItem;
 import com.lionfinance.ironkey.domain.repository.FolderRepository;
+import com.lionfinance.ironkey.domain.repository.PasswordHistoryRepository;
 import com.lionfinance.ironkey.domain.repository.UserRepository;
 import com.lionfinance.ironkey.domain.repository.VaultItemRepository;
+import com.lionfinance.ironkey.domain.entity.PasswordHistory;
 import com.lionfinance.ironkey.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,7 @@ class VaultServiceTest {
     @Mock VaultItemRepository vaultItemRepository;
     @Mock FolderRepository folderRepository;
     @Mock UserRepository userRepository;
+    @Mock PasswordHistoryRepository historyRepository;
 
     @InjectMocks VaultService vaultService;
 
@@ -102,7 +105,7 @@ class VaultServiceTest {
 
     @Test
     void getItem_deletedItem_throwsResourceNotFoundException() {
-        when(vaultItemRepository.findByIdAndUserId(itemId, userId)).thenReturn(Optional.of(deletedItem));
+        when(vaultItemRepository.findByIdAndUserId(deletedItem.getId(), userId)).thenReturn(Optional.of(deletedItem));
 
         assertThatThrownBy(() -> vaultService.getItem(userId, deletedItem.getId()))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -166,6 +169,7 @@ class VaultServiceTest {
     void updateItem_activeItem_updatesAndReturns() {
         when(vaultItemRepository.findByIdAndUserId(itemId, userId)).thenReturn(Optional.of(activeItem));
         when(vaultItemRepository.save(any(VaultItem.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(historyRepository.save(any(PasswordHistory.class))).thenAnswer(inv -> inv.getArgument(0));
 
         var request = new UpdateVaultItemRequest("updatedBlob", "newIv", null);
         var result = vaultService.updateItem(userId, itemId, request);

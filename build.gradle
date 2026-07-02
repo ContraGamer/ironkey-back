@@ -63,6 +63,9 @@ dependencies {
 	// Tests
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.security:spring-security-test'
+	// Spring Boot 4 modularizó las autoconfigs de test-slice por feature — @WebMvcTest ya no
+	// viene con spring-boot-starter-test, hay que declararlo aparte.
+	testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 	testRuntimeOnly    'org.junit.platform:junit-platform-launcher'
 
 	// H2 en memoria para tests de repositorio y contexto completo

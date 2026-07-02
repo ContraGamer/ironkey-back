@@ -5,14 +5,18 @@ spring:
     username: sa
     password:
 
+  # H2 (incluso en MODE=PostgreSQL) no soporta sintaxis específica de las migraciones reales
+  # (p. ej. gen_random_uuid() en V1__create_users_table.sql), y esas migraciones ya están
+  # aplicadas en producción — no se pueden tocar sin romper el checksum de Flyway allí. Para
+  # este smoke test de arranque del contexto, Hibernate genera el esquema desde las entidades
+  # JPA en vez de ejecutar las migraciones reales.
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: create-drop
     show-sql: false
 
   flyway:
-    enabled: true
-    locations: classpath:db/migration
+    enabled: false
 
 ironkey:
   jwt:

@@ -31,6 +31,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -48,7 +50,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+// Los stubs comunes de setUp() (emisión de tokens) no los usan todos los tests
+// (p. ej. logout, getKdfParams, refresh con token inválido) — LENIENT evita que
+// Mockito los marque como "unnecessary stubbing" en esos casos.
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class AuthServiceTest {
 
     @Mock UserRepository userRepository;
@@ -56,6 +62,7 @@ class AuthServiceTest {
     @Mock RefreshTokenRepository refreshTokenRepository;
     @Mock JwtService jwtService;
     @Mock JwtProperties jwtProperties;
+    @Mock LockoutProperties lockoutProperties;
     @Mock PasswordEncoder passwordEncoder;
     @Mock EncryptionService encryptionService;
     @Mock SecretGenerator totpSecretGenerator;
@@ -99,6 +106,10 @@ class AuthServiceTest {
         when(jwtService.generateRawRefreshToken()).thenReturn("rawRefresh");
         when(jwtProperties.refreshTokenExpiration()).thenReturn(604_800_000L);
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Default para tests que ejercitan registerFailedAttempt (password o TOTP inválidos)
+        when(lockoutProperties.maxFailedLoginAttempts()).thenReturn(5);
+        when(lockoutProperties.lockoutDurationMinutes()).thenReturn(15);
 
         testUser.setRequireReprompt(false);
         testUser.setVaultTimeoutMinutes(15);

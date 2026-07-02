@@ -1,6 +1,6 @@
 package com.lionfinance.ironkey.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lionfinance.ironkey.api.controller.VaultController;
 import com.lionfinance.ironkey.api.dto.vault.request.CreateVaultItemRequest;
 import com.lionfinance.ironkey.api.dto.vault.request.UpdateVaultItemRequest;
@@ -8,17 +8,27 @@ import com.lionfinance.ironkey.api.dto.vault.response.VaultItemResponse;
 import com.lionfinance.ironkey.api.handler.GlobalExceptionHandler;
 import com.lionfinance.ironkey.domain.entity.User;
 import com.lionfinance.ironkey.exception.ResourceNotFoundException;
+import com.lionfinance.ironkey.security.filter.JwtAuthenticationFilter;
+import com.lionfinance.ironkey.security.filter.RateLimitFilter;
 import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetails;
 import com.lionfinance.ironkey.service.VaultService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,12 +43,45 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// A diferencia de AuthControllerTest/HealthControllerTest, aquí NO se excluye la autoconfig
+// de Security: el controller usa @AuthenticationPrincipal, que depende de que exista un
+// SecurityFilterChain real en el pipeline de MockMvc — sin él, el RequestPostProcessor
+// .with(authentication(...)) solo guarda el contexto en la sesión pero nada lo vuelve a
+// cargar en el hilo de la petición, y Spring MVC cae a data-binding por reflexión creando
+// un IronKeyUserDetails vacío (user=null) en vez de resolver el principal real.
+// SecurityConfig (la de producción) no se escanea en este slice, así que se provee un
+// SecurityFilterChain mínimo propio: habilita AuthenticationPrincipalArgumentResolver y
+// expone el bean springSecurityFilterChain que springSecurity() necesita para operar.
 @WebMvcTest(
         value = VaultController.class,
-        excludeAutoConfiguration = {SecurityAutoConfiguration.class, SecurityFilterAutoConfiguration.class}
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.ASSIGNABLE_TYPE,
+                classes = {JwtAuthenticationFilter.class, RateLimitFilter.class}
+        )
 )
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, VaultControllerTest.SecurityMockMvcConfig.class})
 class VaultControllerTest {
+
+    // @EnableWebSecurity explícito: provee el bean prototype HttpSecurity que necesita
+    // nuestro SecurityFilterChain de abajo, sin depender de que Boot lo active solo
+    // (su fallback está condicionado a NO tener ya un SecurityFilterChain propio, lo que
+    // crearía una dependencia circular si definiéramos el bean sin este import).
+    @TestConfiguration
+    @EnableWebSecurity
+    static class SecurityMockMvcConfig {
+        @Bean
+        SecurityFilterChain testSecurityFilterChain(HttpSecurity http) throws Exception {
+            return http
+                    .csrf(AbstractHttpConfigurer::disable)
+                    .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                    .build();
+        }
+
+        @Bean
+        MockMvcBuilderCustomizer securityMockMvcCustomizer() {
+            return builder -> builder.apply(SecurityMockMvcConfigurers.springSecurity());
+        }
+    }
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;

@@ -23,7 +23,7 @@ steps:
         path: /root/.gradle
     commands:
       - chmod +x gradlew
-      - ./gradlew clean build -x test
+      - ./gradlew clean build
 
   # ---------------------------------------------------------------------------
   # 2. Build y push de imagen Docker al registry privado

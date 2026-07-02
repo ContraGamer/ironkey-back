@@ -1,6 +1,6 @@
 package com.lionfinance.ironkey.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lionfinance.ironkey.api.controller.AuthController;
 import com.lionfinance.ironkey.api.dto.auth.request.LoginRequest;
 import com.lionfinance.ironkey.api.dto.auth.request.RefreshRequest;
@@ -11,12 +11,16 @@ import com.lionfinance.ironkey.api.handler.GlobalExceptionHandler;
 import com.lionfinance.ironkey.exception.EmailAlreadyExistsException;
 import com.lionfinance.ironkey.exception.InvalidCredentialsException;
 import com.lionfinance.ironkey.exception.TotpRequiredException;
+import com.lionfinance.ironkey.security.filter.JwtAuthenticationFilter;
+import com.lionfinance.ironkey.security.filter.RateLimitFilter;
 import com.lionfinance.ironkey.service.AuthService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterAutoConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -28,9 +32,15 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// excludeFilters: @WebMvcTest detecta automáticamente cualquier bean Filter (incluidos
+// nuestros filtros de seguridad), que no pueden resolver sus dependencias en este slice.
 @WebMvcTest(
         value = AuthController.class,
-        excludeAutoConfiguration = {SecurityAutoConfiguration.class, SecurityFilterAutoConfiguration.class}
+        excludeAutoConfiguration = {SecurityAutoConfiguration.class, SecurityFilterAutoConfiguration.class},
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.ASSIGNABLE_TYPE,
+                classes = {JwtAuthenticationFilter.class, RateLimitFilter.class}
+        )
 )
 @Import(GlobalExceptionHandler.class)
 class AuthControllerTest {
@@ -40,7 +50,7 @@ class AuthControllerTest {
     @MockitoBean AuthService authService;
 
     private static final AuthResponse MOCK_AUTH = new AuthResponse(
-            "access.token", "refresh.token", "encKey", "encIv", false, 15
+            "access.token", "refresh.token", "encKey", "encIv", false, 15, false
     );
 
     // -------------------------------------------------------------------------
@@ -86,9 +96,12 @@ class AuthControllerTest {
 
     @Test
     void register_missingRequiredFields_returns400() throws Exception {
+        // Los campos int del record son primitivos: un JSON totalmente vacío falla al
+        // deserializar (HttpMessageNotReadableException) antes de llegar a @Valid. Se
+        // envían los int para ejercitar de verdad la validación @NotBlank de los String.
         mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{\"kdfIterations\":3,\"kdfMemory\":65536,\"kdfParallelism\":4}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors").exists());
     }
