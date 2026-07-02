@@ -1,6 +1,7 @@
 package com.lionfinance.ironkey.security.filter;
 
 import com.lionfinance.ironkey.security.jwt.JwtService;
+import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetails;
 import com.lionfinance.ironkey.security.userdetails.IronKeyUserDetailsService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -47,6 +48,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
             UUID userId = jwtService.extractUserId(token);
             UserDetails userDetails = userDetailsService.loadUserById(userId);
+
+            // Rechaza tokens emitidos antes de un evento de invalidación (p. ej. recovery de
+            // cuenta) aunque el JWT en sí siga siendo válido y no haya expirado todavía.
+            int tokenVersion = jwtService.extractTokenVersion(token);
+            int currentVersion = ((IronKeyUserDetails) userDetails).getUser().getTokenVersion();
+            if (tokenVersion != currentVersion) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     userDetails,

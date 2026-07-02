@@ -97,6 +97,12 @@ public class User {
     @Column(name = "locked_until")
     private OffsetDateTime lockedUntil;
 
+    // Se incrementa en eventos que deben invalidar los access tokens ya emitidos
+    // (p. ej. recovery). El JWT lleva este valor como claim "tv"; si no coincide, se rechaza.
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private Integer tokenVersion = 0;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

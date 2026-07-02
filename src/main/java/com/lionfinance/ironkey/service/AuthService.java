@@ -344,6 +344,9 @@ public class AuthService {
         user.setMasterPasswordHash(passwordEncoder.encode(request.newMasterPasswordHash()));
         user.setProtectedSymmetricKey(request.newProtectedSymmetricKey());
         user.setProtectedSymmetricKeyIv(request.newProtectedSymmetricKeyIv());
+        // Invalida cualquier access token ya emitido — sin esto seguiría siendo válido
+        // hasta 15 min más pese a que la master password y la vault key ya cambiaron.
+        user.setTokenVersion(user.getTokenVersion() + 1);
 
         refreshTokenRepository.revokeAllByUserId(user.getId(), OffsetDateTime.now());
         userRepository.save(user);

@@ -28,6 +28,11 @@ public class TotpConfig {
     @Bean
     public CodeVerifier codeVerifier() {
         CodeGenerator codeGenerator = new DefaultCodeGenerator();
-        return new DefaultCodeVerifier(codeGenerator, new SystemTimeProvider());
+        DefaultCodeVerifier verifier = new DefaultCodeVerifier(codeGenerator, new SystemTimeProvider());
+        // Por defecto la librería acepta el período anterior y el siguiente (discrepancy=1),
+        // lo que triplica la cantidad de códigos válidos en cualquier instante y facilita
+        // la fuerza bruta. 0 = solo el período actual (±0-30s), suficiente margen práctico.
+        verifier.setAllowedTimePeriodDiscrepancy(0);
+        return verifier;
     }
 }

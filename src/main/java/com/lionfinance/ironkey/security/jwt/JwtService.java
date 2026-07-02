@@ -19,12 +19,20 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class JwtService {
 
+    private static final String ISSUER   = "ironkey-api";
+    private static final String AUDIENCE = "ironkey-client";
+
     private final JwtProperties jwtProperties;
 
     public String generateAccessToken(User user) {
         return Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
+                // Permite invalidar tokens ya emitidos (p. ej. tras recovery) sin esperar
+                // a que expiren — ver AuthService.recoverAccount.
+                .claim("tv", user.getTokenVersion())
+                .issuer(ISSUER)
+                .audience().add(AUDIENCE).and()
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtProperties.accessTokenExpiration()))
                 .signWith(signingKey())
@@ -47,6 +55,11 @@ public class JwtService {
         return parseClaims(token).get("email", String.class);
     }
 
+    public int extractTokenVersion(String token) {
+        Integer tv = parseClaims(token).get("tv", Integer.class);
+        return tv != null ? tv : 0;
+    }
+
     public boolean isTokenValid(String token) {
         try {
             parseClaims(token);
@@ -59,6 +72,8 @@ public class JwtService {
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey())
+                .requireIssuer(ISSUER)
+                .requireAudience(AUDIENCE)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
