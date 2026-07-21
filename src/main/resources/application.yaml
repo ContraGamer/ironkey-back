@@ -51,6 +51,10 @@ ironkey:
   security:
     max-failed-login-attempts: 5
     lockout-duration-minutes: 15
+  cleanup:
+    trash-retention-days: 30   # días hasta purga permanente de papelera
+    cron-tokens: "0 0 2 * * *" # 2am diario — tokens expirados/revocados
+    cron-trash:  "0 0 3 * * *" # 3am diario — papelera > retention-days
 
 ---
 spring:

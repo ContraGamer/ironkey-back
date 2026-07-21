@@ -30,5 +30,5 @@ public interface VaultItemRepository extends JpaRepository<VaultItem, UUID> {
     // Purgar ítems en papelera más antiguos de X días (para un job de limpieza automática)
     @Modifying
     @Query("DELETE FROM VaultItem v WHERE v.deletedAt IS NOT NULL AND v.deletedAt < :before")
-    void purgeDeletedBefore(@Param("before") OffsetDateTime before);
+    int purgeDeletedBefore(@Param("before") OffsetDateTime before);
 }
